@@ -1,0 +1,31 @@
+name: Construire l'APK
+on:
+  push:
+  workflow_dispatch:
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+      - name: Décompresser le projet
+        run: unzip -o ReveilPronote.zip
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "17"
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - uses: android-actions/setup-android@v3
+        with:
+          packages: "platforms;android-34 build-tools;34.0.0"
+      - uses: gradle/actions/setup-gradle@v5
+        with:
+          gradle-version: "8.7"
+      - name: Compiler
+        working-directory: ReveilPronote
+        run: gradle assembleDebug --no-daemon --stacktrace
+      - uses: actions/upload-artifact@v5
+        with:
+          name: ReveilPronote-apk
+          path: ReveilPronote/app/build/outputs/apk/debug/*.apk
