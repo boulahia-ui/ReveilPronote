@@ -53,17 +53,7 @@ def _fmt(value):
     return value.strftime("%Y-%m-%dT%H:%M:%S")
 
 
-def fetch(creds_path, start_iso, days):
-    """Se reconnecte avec le jeton enregistré et renvoie les cours en JSON."""
-    with open(creds_path, encoding="utf-8") as f:
-        c = json.load(f)
-    client = _client_class(c["url"]).token_login(c["url"], c["username"], c["password"], c["uuid"])
-    if not client.logged_in:
-        raise RuntimeError("Session Pronote expirée")
-    data = _save(creds_path, client, c["uuid"])
-
-    start = _dt.date.fromisoformat(start_iso)
-    end = start + _dt.timedelta(days=int(days))
+def _lessons(client, start, end):
     out = []
     for lesson in client.lessons(start, end):
         subject = getattr(getattr(lesson, "subject", None), "name", None) or ""
@@ -76,4 +66,26 @@ def fetch(creds_path, start_iso, days):
             "canceled": bool(getattr(lesson, "canceled", False)),
             "status": getattr(lesson, "status", None) or "",
         })
-    return json.dumps({"name": data["name"], "lessons": out}, ensure_ascii=False)
+    return out
+
+
+def fetch(creds_path, start_iso, days):
+    """Se reconnecte avec le jeton enregistré et renvoie les cours de chaque enfant en JSON."""
+    with open(creds_path, encoding="utf-8") as f:
+        c = json.load(f)
+    client = _client_class(c["url"]).token_login(c["url"], c["username"], c["password"], c["uuid"])
+    if not client.logged_in:
+        raise RuntimeError("Session Pronote expirée")
+    data = _save(creds_path, client, c["uuid"])
+
+    start = _dt.date.fromisoformat(start_iso)
+    end = start + _dt.timedelta(days=int(days))
+    children = []
+    if isinstance(client, pronotepy.ParentClient) and getattr(client, "children", None):
+        # Compte parent : un emploi du temps par enfant rattaché
+        for child in list(client.children):
+            client.set_child(child)
+            children.append({"name": child.name or "Enfant", "lessons": _lessons(client, start, end)})
+    else:
+        children.append({"name": data["name"] or "Élève", "lessons": _lessons(client, start, end)})
+    return json.dumps({"name": data["name"], "children": children}, ensure_ascii=False)

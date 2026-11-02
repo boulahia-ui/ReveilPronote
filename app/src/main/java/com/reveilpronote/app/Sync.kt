@@ -38,19 +38,29 @@ object Sync {
         val prefs = Prefs(ctx)
         try {
             val raw = Bridge.fetch(ctx, DAYS)
-            val lessons = Lessons.parse(raw)
+            val children = Lessons.parseChildren(raw)
             prefs.lessonsJson = raw
             Lessons.accountName(raw)?.let { prefs.accountName = it }
 
-            // Profs absents / cours annulés : une notification par cours
+            // Profs absents / cours annulés : une notification par cours et par enfant suivi
             val now = LocalDateTime.now()
             val already = prefs.notified
-            val fresh = Planner.newAbsences(lessons, now, already)
-            fresh.forEach { Notifier.absence(ctx, it) }
+            val added = HashSet<String>()
+            val showName = children.size > 1
+            for (child in children) {
+                if (!prefs.followed(child.id)) continue
+                for (l in child.lessons) {
+                    val key = "${child.id}|${l.key}"
+                    if (l.notHappening && l.end.isAfter(now) && key !in already) {
+                        Notifier.absence(ctx, if (showName) child.name else "", l, key)
+                        added += key
+                    }
+                }
+            }
             val limit = now.toLocalDate().minusDays(1).toString()
-            prefs.notified = (already + fresh.map { it.key }).filter { it.substringBefore('|') >= limit }.toSet()
+            prefs.notified = (already + added).filter { it.split('|').getOrElse(1) { "" } >= limit }.toSet()
 
-            applyAlarm(ctx, lessons)
+            applyAlarms(ctx, children)
             prefs.lastSync = System.currentTimeMillis()
             prefs.lastError = null
         } catch (e: Exception) {
@@ -59,28 +69,34 @@ object Sync {
         }
     }
 
-    /** Calcule et programme le réveil à partir des cours connus (sans réseau). */
-    fun applyAlarm(ctx: Context, lessons: List<Lesson> = Lessons.parse(Prefs(ctx).lessonsJson)) {
+    /** Calcule et programme le réveil de chaque enfant à partir des cours connus (sans réseau). */
+    fun applyAlarms(ctx: Context, children: List<ChildData> = Lessons.parseChildren(Prefs(ctx).lessonsJson)) {
         val prefs = Prefs(ctx)
-        if (prefs.snoozeUntil > System.currentTimeMillis()) return
-        if (!prefs.alarmEnabled) {
-            AlarmScheduler.cancel(ctx)
-            prefs.alarmAt = 0L
-            prefs.alarmLabel = null
-            return
+        val now = System.currentTimeMillis()
+        for (child in children) {
+            val id = child.id
+            if (prefs.snoozeUntil(id) > now) continue
+            val plan = if (prefs.followed(id) && prefs.alarmEnabled(id)) {
+                Planner.nextAlarm(child.lessons, prefs.offsetMinutes(id), LocalDateTime.now())
+            } else {
+                null
+            }
+            if (plan == null) {
+                AlarmScheduler.cancel(ctx, id)
+                prefs.setAlarmAt(id, 0L)
+                prefs.setAlarmLabel(id, null)
+                continue
+            }
+            val millis = Format.toMillis(plan.alarmAt)
+            val label = "${plan.first.subject.ifBlank { "Premier cours" }} à ${Format.time(plan.first.start)}"
+            AlarmScheduler.schedule(ctx, id, child.name, millis, label)
+            prefs.setAlarmAt(id, millis)
+            prefs.setAlarmLabel(id, label)
         }
-        val plan = Planner.nextAlarm(lessons, prefs.offsetMinutes, LocalDateTime.now())
-        if (plan == null) {
-            AlarmScheduler.cancel(ctx)
-            prefs.alarmAt = 0L
-            prefs.alarmLabel = null
-            return
-        }
-        val millis = Format.toMillis(plan.alarmAt)
-        val label = "${plan.first.subject.ifBlank { "Premier cours" }} à ${Format.time(plan.first.start)}"
-        AlarmScheduler.schedule(ctx, millis, label)
-        prefs.alarmAt = millis
-        prefs.alarmLabel = label
+    }
+
+    fun cancelAll(ctx: Context) {
+        for (child in Lessons.parseChildren(Prefs(ctx).lessonsJson)) AlarmScheduler.cancel(ctx, child.id)
     }
 
     fun schedulePeriodic(ctx: Context) {

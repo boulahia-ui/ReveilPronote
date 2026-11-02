@@ -21,6 +21,7 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -61,7 +62,9 @@ private fun MainScreen(tick: Int, refresh: () -> Unit) {
     var message by remember { mutableStateOf<String?>(null) }
 
     val loggedIn = remember(tick) { Bridge.isLoggedIn(ctx) }
-    val lessons = remember(tick) { Lessons.parse(prefs.lessonsJson) }
+    val children = remember(tick) { Lessons.parseChildren(prefs.lessonsJson) }
+    var selectedId by rememberSaveable { mutableStateOf<String?>(null) }
+    val selected = children.firstOrNull { it.id == selectedId } ?: children.firstOrNull()
 
     LaunchedEffect(message) {
         val m = message ?: return@LaunchedEffect
@@ -141,13 +144,25 @@ private fun MainScreen(tick: Int, refresh: () -> Unit) {
                 prefs.accountName?.let {
                     Text(it, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
                 }
-                AlarmCard(prefs, lessons, refresh)
-                AbsencesCard(lessons)
+                if (children.isEmpty()) {
+                    Text("Synchronisez pour récupérer l'emploi du temps.")
+                } else {
+                    if (children.size > 1) {
+                        ChildSelector(prefs, children, selected?.id) { selectedId = it }
+                    }
+                    selected?.let { child ->
+                        FollowCard(prefs, child, showName = children.size > 1, refresh = refresh)
+                        if (prefs.followed(child.id)) {
+                            AlarmCard(prefs, child, refresh)
+                            AbsencesCard(child)
+                        }
+                    }
+                }
                 PermissionsCard(tick, refresh)
                 SyncCard(prefs, busy == null, onSync = { syncNow() })
                 TextButton(onClick = {
                     Bridge.logout(ctx)
-                    AlarmScheduler.cancel(ctx)
+                    Sync.cancelAll(ctx)
                     Sync.stop(ctx)
                     prefs.clearAccount()
                     refresh()
@@ -255,32 +270,72 @@ private fun SetupCard(enabled: Boolean, onLogin: (String, String) -> Unit) {
 }
 
 @Composable
-private fun AlarmCard(prefs: Prefs, lessons: List<Lesson>, refresh: () -> Unit) {
-    val ctx = LocalContext.current
-    val alarmAt = prefs.alarmAt
-    val active = prefs.alarmEnabled && alarmAt > System.currentTimeMillis()
+private fun ChildSelector(prefs: Prefs, children: List<ChildData>, selectedId: String?, onSelect: (String) -> Unit) {
+    Section("Enfants") {
+        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            children.forEach { c ->
+                val at = prefs.alarmAt(c.id)
+                val sub = when {
+                    !prefs.followed(c.id) -> "non suivi"
+                    prefs.alarmEnabled(c.id) && at > System.currentTimeMillis() -> "⏰ ${Format.time(Format.fromMillis(at))}"
+                    else -> "sans réveil"
+                }
+                FilterChip(
+                    selected = c.id == selectedId,
+                    onClick = { onSelect(c.id) },
+                    label = { Text("${c.name} · $sub") },
+                )
+            }
+        }
+    }
+}
 
-    Section("Prochain réveil") {
+@Composable
+private fun FollowCard(prefs: Prefs, child: ChildData, showName: Boolean, refresh: () -> Unit) {
+    val ctx = LocalContext.current
+    if (!showName) return
+    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+        Column(Modifier.weight(1f)) {
+            Text("Suivre ${child.name}", fontWeight = FontWeight.SemiBold)
+            Text("Réveil et alertes de prof absent", style = MaterialTheme.typography.bodySmall)
+        }
+        Switch(checked = prefs.followed(child.id), onCheckedChange = {
+            prefs.setFollowed(child.id, it)
+            Sync.applyAlarms(ctx)
+            refresh()
+        })
+    }
+}
+
+@Composable
+private fun AlarmCard(prefs: Prefs, child: ChildData, refresh: () -> Unit) {
+    val ctx = LocalContext.current
+    val id = child.id
+    val enabled = prefs.alarmEnabled(id)
+    val alarmAt = prefs.alarmAt(id)
+    val active = enabled && alarmAt > System.currentTimeMillis()
+
+    Section("Prochain réveil · ${child.name}") {
         if (active) {
             val at = Format.fromMillis(alarmAt)
             Text(Format.dayName(at.toLocalDate()), style = MaterialTheme.typography.bodyLarge)
             Text(Format.time(at), fontSize = 48.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
-            prefs.alarmLabel?.let { Text("Premier cours : $it") }
+            prefs.alarmLabel(id)?.let { Text("Premier cours : $it") }
         } else {
             Text(
                 when {
-                    !prefs.alarmEnabled -> "Réveil automatique désactivé."
-                    lessons.isEmpty() -> "Synchronisez pour calculer le réveil."
-                    else -> "Aucun cours trouvé dans les 8 prochains jours."
+                    !enabled -> "Réveil automatique désactivé."
+                    child.lessons.isEmpty() -> "Aucun cours trouvé dans les 8 prochains jours."
+                    else -> "Aucun cours à venir dans les 8 prochains jours."
                 },
             )
         }
 
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             Text("Réveil automatique", Modifier.weight(1f))
-            Switch(checked = prefs.alarmEnabled, onCheckedChange = {
-                prefs.alarmEnabled = it
-                Sync.applyAlarm(ctx, lessons)
+            Switch(checked = enabled, onCheckedChange = {
+                prefs.setAlarmEnabled(id, it)
+                Sync.applyAlarms(ctx)
                 refresh()
             })
         }
@@ -289,10 +344,10 @@ private fun AlarmCard(prefs: Prefs, lessons: List<Lesson>, refresh: () -> Unit) 
         FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             listOf(30, 45, 60, 75, 90, 120).forEach { m ->
                 FilterChip(
-                    selected = prefs.offsetMinutes == m,
+                    selected = prefs.offsetMinutes(id) == m,
                     onClick = {
-                        prefs.offsetMinutes = m
-                        Sync.applyAlarm(ctx, lessons)
+                        prefs.setOffsetMinutes(id, m)
+                        Sync.applyAlarms(ctx)
                         refresh()
                     },
                     label = { Text(if (m < 60) "$m min" else if (m % 60 == 0) "${m / 60} h" else "${m / 60} h ${m % 60}") },
@@ -306,6 +361,8 @@ private fun AlarmCard(prefs: Prefs, lessons: List<Lesson>, refresh: () -> Unit) 
         OutlinedButton(onClick = {
             ctx.startActivity(
                 Intent(ctx, AlarmActivity::class.java)
+                    .putExtra(AlarmScheduler.EXTRA_CHILD, "test")
+                    .putExtra(AlarmScheduler.EXTRA_CHILD_NAME, child.name)
                     .putExtra(AlarmScheduler.EXTRA_LABEL, "Test de la sonnerie")
                     .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
             )
@@ -314,9 +371,9 @@ private fun AlarmCard(prefs: Prefs, lessons: List<Lesson>, refresh: () -> Unit) 
 }
 
 @Composable
-private fun AbsencesCard(lessons: List<Lesson>) {
+private fun AbsencesCard(child: ChildData) {
     val now = LocalDateTime.now()
-    val upcoming = lessons.filter { it.notHappening && it.end.isAfter(now) }
+    val upcoming = child.lessons.filter { it.notHappening && it.end.isAfter(now) }
     Section("Profs absents et cours annulés") {
         if (upcoming.isEmpty()) {
             Text("Rien de signalé sur les 8 prochains jours.")

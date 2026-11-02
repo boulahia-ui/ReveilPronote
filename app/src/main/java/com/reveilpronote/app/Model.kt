@@ -1,5 +1,6 @@
 package com.reveilpronote.app
 
+import org.json.JSONArray
 import org.json.JSONObject
 import java.time.Instant
 import java.time.LocalDate
@@ -26,10 +27,33 @@ data class Lesson(
     val key: String get() = "$start|$subject|$status"
 }
 
+/** Identifiant stable d'un enfant (dérivé de son nom). */
+fun childId(name: String): String = "c" + Integer.toHexString(name.trim().lowercase().hashCode())
+
+data class ChildData(val name: String, val lessons: List<Lesson>) {
+    val id: String get() = childId(name)
+}
+
 object Lessons {
-    fun parse(raw: String?): List<Lesson> {
+    fun parseChildren(raw: String?): List<ChildData> {
         if (raw.isNullOrBlank()) return emptyList()
-        val arr = runCatching { JSONObject(raw).optJSONArray("lessons") }.getOrNull() ?: return emptyList()
+        val root = runCatching { JSONObject(raw) }.getOrNull() ?: return emptyList()
+        val arr = root.optJSONArray("children")
+        if (arr == null) {
+            // Ancien format : un seul élève
+            val lessons = parseLessonArray(root.optJSONArray("lessons"))
+            return listOf(ChildData(root.optString("name").ifBlank { "Élève" }, lessons))
+        }
+        val list = ArrayList<ChildData>()
+        for (i in 0 until arr.length()) {
+            val o = arr.optJSONObject(i) ?: continue
+            list += ChildData(o.optString("name").ifBlank { "Enfant ${i + 1}" }, parseLessonArray(o.optJSONArray("lessons")))
+        }
+        return list
+    }
+
+    private fun parseLessonArray(arr: JSONArray?): List<Lesson> {
+        if (arr == null) return emptyList()
         val list = ArrayList<Lesson>()
         for (i in 0 until arr.length()) {
             val o = arr.optJSONObject(i) ?: continue

@@ -16,7 +16,6 @@ import androidx.core.content.ContextCompat
 object Notifier {
     const val CH_ALARM = "alarm"
     const val CH_ABSENCE = "absences"
-    private const val ALARM_ID = 1000
 
     fun createChannels(ctx: Context) {
         val nm = ctx.getSystemService(NotificationManager::class.java)
@@ -47,10 +46,14 @@ object Notifier {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )
 
-    fun absence(ctx: Context, l: Lesson) {
+    private fun alarmNotifId(childId: String) = 1000 + (childId.hashCode() and 0xFFFF)
+
+    /** childName vide si un seul enfant est suivi. */
+    fun absence(ctx: Context, childName: String, l: Lesson, notifKey: String) {
         if (!canNotify(ctx)) return
         val subject = l.subject.ifBlank { "Cours" }
-        val title = if (l.teacherAbsent) "Prof absent : $subject" else "Cours annulé : $subject"
+        val who = if (childName.isNotBlank()) " ($childName)" else ""
+        val title = (if (l.teacherAbsent) "Prof absent : $subject" else "Cours annulé : $subject") + who
         val details = buildList {
             add(Format.dayTime(l.start))
             if (l.teacher.isNotBlank()) add(l.teacher)
@@ -65,19 +68,22 @@ object Notifier {
             .setAutoCancel(true)
             .setCategory(NotificationCompat.CATEGORY_EVENT)
             .build()
-        ctx.getSystemService(NotificationManager::class.java).notify(l.key.hashCode(), n)
+        ctx.getSystemService(NotificationManager::class.java).notify(notifKey.hashCode(), n)
     }
 
-    fun alarm(ctx: Context, label: String) {
+    fun alarm(ctx: Context, childId: String, childName: String, label: String) {
         val screen = Intent(ctx, AlarmActivity::class.java)
+            .putExtra(AlarmScheduler.EXTRA_CHILD, childId)
+            .putExtra(AlarmScheduler.EXTRA_CHILD_NAME, childName)
             .putExtra(AlarmScheduler.EXTRA_LABEL, label)
             .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_NO_USER_ACTION)
         val full = PendingIntent.getActivity(
-            ctx, 2, screen, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+            ctx, childId.hashCode(), screen, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )
+        val title = if (childName.isNotBlank()) "Réveil de $childName" else "Réveil Pronote"
         val n = NotificationCompat.Builder(ctx, CH_ALARM)
             .setSmallIcon(R.drawable.ic_notif)
-            .setContentTitle("Réveil Pronote")
+            .setContentTitle(title)
             .setContentText(label)
             .setPriority(NotificationCompat.PRIORITY_MAX)
             .setCategory(NotificationCompat.CATEGORY_ALARM)
@@ -85,10 +91,10 @@ object Notifier {
             .setContentIntent(full)
             .setOngoing(true)
             .build()
-        if (canNotify(ctx)) ctx.getSystemService(NotificationManager::class.java).notify(ALARM_ID, n)
+        if (canNotify(ctx)) ctx.getSystemService(NotificationManager::class.java).notify(alarmNotifId(childId), n)
     }
 
-    fun cancelAlarm(ctx: Context) {
-        ctx.getSystemService(NotificationManager::class.java).cancel(ALARM_ID)
+    fun cancelAlarm(ctx: Context, childId: String) {
+        ctx.getSystemService(NotificationManager::class.java).cancel(alarmNotifId(childId))
     }
 }

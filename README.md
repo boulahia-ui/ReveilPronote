@@ -3,6 +3,12 @@
 Application Android qui se connecte à Pronote, programme un réveil avant le premier cours
 de la journée et prévient quand un professeur est absent ou qu'un cours est annulé.
 
+## Plusieurs enfants
+Avec un compte parent, l'application récupère l'emploi du temps de chaque enfant rattaché.
+Pour chaque enfant : suivi oui/non, réveil activé ou non, délai avant le premier cours,
+liste des absences de profs. Chaque enfant a sa propre alarme ; si plusieurs sonnent
+en même temps, l'écran de réveil les affiche ensemble.
+
 ## Fonctionnement
 - **Connexion** par le QR code « application mobile » de Pronote + code à 4 chiffres
   (fonctionne avec ou sans ENT, comptes élève et parent).

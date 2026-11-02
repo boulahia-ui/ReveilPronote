@@ -8,21 +8,27 @@ import android.os.Build
 
 object AlarmScheduler {
     const val EXTRA_LABEL = "label"
+    const val EXTRA_CHILD = "child"
+    const val EXTRA_CHILD_NAME = "child_name"
 
-    private fun fireIntent(ctx: Context, label: String?): PendingIntent =
+    /** Une alarme distincte par enfant (action et code propres à l'enfant). */
+    private fun fireIntent(ctx: Context, childId: String, childName: String?, label: String?): PendingIntent =
         PendingIntent.getBroadcast(
-            ctx, 0,
-            Intent(ctx, AlarmReceiver::class.java).putExtra(EXTRA_LABEL, label),
+            ctx, childId.hashCode(),
+            Intent(ctx, AlarmReceiver::class.java)
+                .setAction("com.reveilpronote.ALARM.$childId")
+                .putExtra(EXTRA_CHILD, childId)
+                .putExtra(EXTRA_CHILD_NAME, childName)
+                .putExtra(EXTRA_LABEL, label),
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )
 
     fun canExact(ctx: Context): Boolean =
         Build.VERSION.SDK_INT < 31 || ctx.getSystemService(AlarmManager::class.java).canScheduleExactAlarms()
 
-    /** Alarme « réveil » exacte (icône réveil dans la barre d'état, fonctionne en veille). */
-    fun schedule(ctx: Context, atMillis: Long, label: String) {
+    fun schedule(ctx: Context, childId: String, childName: String, atMillis: Long, label: String) {
         val am = ctx.getSystemService(AlarmManager::class.java)
-        val fire = fireIntent(ctx, label)
+        val fire = fireIntent(ctx, childId, childName, label)
         val show = PendingIntent.getActivity(
             ctx, 1, Intent(ctx, MainActivity::class.java), PendingIntent.FLAG_IMMUTABLE,
         )
@@ -33,7 +39,7 @@ object AlarmScheduler {
         }
     }
 
-    fun cancel(ctx: Context) {
-        ctx.getSystemService(AlarmManager::class.java).cancel(fireIntent(ctx, null))
+    fun cancel(ctx: Context, childId: String) {
+        ctx.getSystemService(AlarmManager::class.java).cancel(fireIntent(ctx, childId, null, null))
     }
 }

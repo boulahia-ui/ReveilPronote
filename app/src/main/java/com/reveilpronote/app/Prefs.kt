@@ -3,7 +3,7 @@ package com.reveilpronote.app
 import android.content.Context
 import java.util.UUID
 
-/** Réglages et état de l'application (stockage privé). */
+/** Réglages et état de l'application (stockage privé). Réglages du réveil propres à chaque enfant. */
 class Prefs(context: Context) {
     private val p = context.applicationContext.getSharedPreferences("reveil_pronote", Context.MODE_PRIVATE)
 
@@ -14,27 +14,6 @@ class Prefs(context: Context) {
     var accountName: String?
         get() = p.getString("name", null)
         set(v) = p.edit().putString("name", v).apply()
-
-    var alarmEnabled: Boolean
-        get() = p.getBoolean("alarm_enabled", true)
-        set(v) = p.edit().putBoolean("alarm_enabled", v).apply()
-
-    /** Minutes entre la sonnerie et le début du premier cours. */
-    var offsetMinutes: Int
-        get() = p.getInt("offset", 60)
-        set(v) = p.edit().putInt("offset", v).apply()
-
-    var alarmAt: Long
-        get() = p.getLong("alarm_at", 0L)
-        set(v) = p.edit().putLong("alarm_at", v).apply()
-
-    var alarmLabel: String?
-        get() = p.getString("alarm_label", null)
-        set(v) = p.edit().putString("alarm_label", v).apply()
-
-    var snoozeUntil: Long
-        get() = p.getLong("snooze_until", 0L)
-        set(v) = p.edit().putLong("snooze_until", v).apply()
 
     var lastSync: Long
         get() = p.getLong("last_sync", 0L)
@@ -53,11 +32,32 @@ class Prefs(context: Context) {
         get() = p.getStringSet("notified", null)?.toSet() ?: emptySet()
         set(v) = p.edit().putStringSet("notified", v).apply()
 
+    // ----- Par enfant -----
+    private fun k(child: String, name: String) = "c.$child.$name"
+
+    /** Enfant suivi : réveil et notifications. */
+    fun followed(child: String): Boolean = p.getBoolean(k(child, "followed"), true)
+    fun setFollowed(child: String, v: Boolean) = p.edit().putBoolean(k(child, "followed"), v).apply()
+
+    fun alarmEnabled(child: String): Boolean = p.getBoolean(k(child, "alarm"), true)
+    fun setAlarmEnabled(child: String, v: Boolean) = p.edit().putBoolean(k(child, "alarm"), v).apply()
+
+    /** Minutes entre la sonnerie et le début du premier cours. */
+    fun offsetMinutes(child: String): Int = p.getInt(k(child, "offset"), 60)
+    fun setOffsetMinutes(child: String, v: Int) = p.edit().putInt(k(child, "offset"), v).apply()
+
+    fun alarmAt(child: String): Long = p.getLong(k(child, "at"), 0L)
+    fun setAlarmAt(child: String, v: Long) = p.edit().putLong(k(child, "at"), v).apply()
+
+    fun alarmLabel(child: String): String? = p.getString(k(child, "label"), null)
+    fun setAlarmLabel(child: String, v: String?) = p.edit().putString(k(child, "label"), v).apply()
+
+    fun snoozeUntil(child: String): Long = p.getLong(k(child, "snooze"), 0L)
+    fun setSnoozeUntil(child: String, v: Long) = p.edit().putLong(k(child, "snooze"), v).apply()
+
     fun clearAccount() {
-        p.edit()
-            .remove("name").remove("lessons").remove("notified")
-            .remove("alarm_at").remove("alarm_label").remove("snooze_until")
-            .remove("last_sync").remove("last_error")
-            .apply()
+        val e = p.edit()
+        p.all.keys.filter { it.startsWith("c.") }.forEach { e.remove(it) }
+        e.remove("name").remove("lessons").remove("notified").remove("last_sync").remove("last_error").apply()
     }
 }
