@@ -34,7 +34,9 @@ chaquopy {
     defaultConfig {
         version = "3.11"
         pip {
-            // Dépendances de pronotepy, en pur Python
+            // Aucune dépendance automatique : pycryptodome (code natif) est remplacé
+            // par le module Crypto fourni. Toutes les dépendances sont listées ci-dessous.
+            options("--no-deps")
             install("requests")
             install("urllib3")
             install("idna")
@@ -44,8 +46,7 @@ chaquopy {
             install("soupsieve")
             install("typing-extensions")
             install("autoslot")
-            // pronotepy sans pycryptodome (remplacé par le module Crypto fourni, basé sur Java)
-            install("--no-deps", "pronotepy==2.14.5")
+            install("pronotepy==2.14.5")
         }
     }
 }
