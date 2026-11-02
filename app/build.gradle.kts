@@ -46,7 +46,7 @@ chaquopy {
             install("soupsieve")
             install("typing-extensions")
             install("autoslot")
-            install("pronotepy==2.14.5")
+            install("pronotepy==2.15.7")
         }
     }
 }

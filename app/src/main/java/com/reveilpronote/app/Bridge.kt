@@ -48,6 +48,9 @@ object Bridge {
             m.contains("ConnectionError") || m.contains("Max retries") || m.contains("NameResolution") ->
                 "Impossible de joindre Pronote. Vérifiez la connexion Internet."
             m.contains("FileNotFoundError") -> "Aucun compte Pronote connecté."
+            m.contains("'onload'") || m.contains("id_body") ->
+                "Pronote a renvoyé une page inattendue (version de Pronote non prise en charge ou page d'ENT). " +
+                    "Mettez l'application à jour ou réessayez avec un nouveau QR code."
             else -> m.lineSequence().firstOrNull { it.isNotBlank() }?.take(240) ?: m.take(240)
         }
     }
